@@ -6,7 +6,7 @@ body {
 }
 
 .popup {
-  width: 430px;
+  width: 400px;
   padding: 16px;
 }
 
@@ -40,12 +40,12 @@ p {
 }
 
 #debug-info {
-  max-height: 260px;
+  max-height: 180px;
   overflow: auto;
   font-size: 12px;
 }
 
-#refresh-button {
+#toggle-button {
   width: 100%;
   padding: 10px 12px;
   border: none;

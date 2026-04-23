@@ -3,31 +3,32 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Subtitle test</title>
+  <title>Subtitle Listener</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="popup">
-    <h1>Subtitle test</h1>
+    <h1>Subtitle Listener</h1>
 
     <section class="section">
       <h2>Status</h2>
-      <p><strong>Player:</strong> <span id="player-status">Ładowanie...</span></p>
-      <p><strong>Video:</strong> <span id="video-status">Ładowanie...</span></p>
-      <p><strong>Kontener napisów:</strong> <span id="caption-status">Ładowanie...</span></p>
+      <p><strong>Listener:</strong> <span id="listener-status">wyłączony</span></p>
+      <p><strong>Player:</strong> <span id="player-status">-</span></p>
+      <p><strong>Video:</strong> <span id="video-status">-</span></p>
+      <p><strong>Napisy:</strong> <span id="caption-status">-</span></p>
     </section>
 
     <section class="section">
       <h2>Aktualny tekst napisów</h2>
-      <p id="caption-text">Ładowanie...</p>
+      <p id="caption-text">Brak danych.</p>
     </section>
 
     <section class="section">
       <h2>Debug</h2>
-      <p id="debug-info">Ładowanie...</p>
+      <p id="debug-info">Kliknij „Start listening”.</p>
     </section>
 
-    <button id="refresh-button" type="button">Odśwież dane</button>
+    <button id="toggle-button" type="button">Start listening</button>
   </main>
 
   <script src="popup.js"></script>

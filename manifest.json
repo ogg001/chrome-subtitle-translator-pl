@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "chrome-subtitle-translator-pl",
   "version": "0.1.0",
-  "description": "Chrome extension for extracting subtitles from Video.js players.",
+  "description": "Chrome extension for live reading Video.js subtitles.",
   "permissions": ["activeTab", "tabs", "scripting"],
   "host_permissions": [
     "https://awsacademy.instructure.com/*",
