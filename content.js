@@ -1,70 +1,77 @@
-function getYouTubeTitle() {
-  const selectors = [
-    "h1.ytd-watch-metadata",
-    "yt-formatted-string.style-scope.ytd-watch-metadata",
-    "h1.title"
-  ];
+let latestState = {
+  foundPlayer: false,
+  foundVideo: false,
+  foundCaptionContainer: false,
+  captionText: "",
+  locationHref: "",
+  documentTitle: "",
+  bodyId: "",
+  bodyClass: ""
+};
 
-  for (const selector of selectors) {
-    const el = document.querySelector(selector);
-    const text = el?.textContent?.trim();
-
-    if (text) {
-      return text;
-    }
-  }
-
-  return document.title || null;
+function normalize(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
 }
 
-function getVideoInfo() {
-  const video = document.querySelector("video");
+function collectState() {
+  const player =
+    document.querySelector("#rscpAu-Media") ||
+    document.querySelector(".video-js");
 
-  if (!video) {
-    return {
-      foundVideo: false,
-      textTracksCount: 0
-    };
-  }
+  const video =
+    document.querySelector("#rscpAu-Media_html5_api") ||
+    document.querySelector("video.vjs-tech") ||
+    document.querySelector("video");
 
-  return {
-    foundVideo: true,
-    textTracksCount: video.textTracks?.length ?? 0
+  const captionContainer =
+    document.querySelector(".vjs-text-track-display") ||
+    document.querySelector(".vjs-text-track-cue");
+
+  const captionCue = document.querySelector(".vjs-text-track-cue");
+
+  const captionText = normalize(
+    captionCue?.innerText ||
+    captionContainer?.innerText ||
+    ""
+  );
+
+  latestState = {
+    foundPlayer: !!player,
+    foundVideo: !!video,
+    foundCaptionContainer: !!captionContainer,
+    captionText,
+    locationHref: location.href,
+    documentTitle: document.title || "",
+    bodyId: document.body?.id || "",
+    bodyClass: document.body?.className || ""
   };
 }
 
-function getCaptionInfo() {
-  const container =
-    document.querySelector(".ytp-caption-window-container") ||
-    document.querySelector(".captions-text") ||
-    document.querySelector(".ytp-caption-segment");
+function startWatcher() {
+  collectState();
 
-  const segments = Array.from(document.querySelectorAll(".ytp-caption-segment"));
+  const observer = new MutationObserver(() => {
+    collectState();
+  });
 
-  const captionText = segments
-    .map((el) => el.textContent?.trim())
-    .filter(Boolean)
-    .join(" ");
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
 
-  return {
-    foundCaptionContainer: !!container,
-    captionText: captionText || "Nie znaleziono aktualnego tekstu napisów."
-  };
+  setInterval(collectState, 1000);
 }
+
+startWatcher();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "GET_YT_VIDEO_INFO") {
-    const title = getYouTubeTitle();
-    const videoInfo = getVideoInfo();
-    const captionInfo = getCaptionInfo();
+  if (message.type === "GET_PLAYER_STATE") {
+    collectState();
 
     sendResponse({
       ok: true,
-      title: title || "Nie znaleziono tytułu filmu.",
-      foundVideo: videoInfo.foundVideo,
-      textTracksCount: videoInfo.textTracksCount,
-      foundCaptionContainer: captionInfo.foundCaptionContainer,
-      captionText: captionInfo.captionText
+      ...latestState
     });
   }
 
