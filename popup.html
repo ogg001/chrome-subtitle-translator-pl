@@ -3,13 +3,32 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Video title test</title>
+  <title>YouTube video info</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="popup">
-    <h1>Tytuł filmu</h1>
-    <p id="title">Ładowanie...</p>
+    <h1>YouTube video info</h1>
+
+    <section class="section">
+      <h2>Tytuł filmu</h2>
+      <p id="title">Ładowanie...</p>
+    </section>
+
+    <section class="section">
+      <h2>Status video</h2>
+      <p><strong>Video:</strong> <span id="video-status">Ładowanie...</span></p>
+      <p><strong>textTracks:</strong> <span id="tracks-count">Ładowanie...</span></p>
+    </section>
+
+    <section class="section">
+      <h2>Status napisów</h2>
+      <p><strong>Kontener napisów:</strong> <span id="caption-container-status">Ładowanie...</span></p>
+      <p><strong>Aktualny tekst:</strong></p>
+      <p id="caption-text">Ładowanie...</p>
+    </section>
+
+    <button id="refresh-button" type="button">Odśwież dane</button>
   </main>
 
   <script src="popup.js"></script>

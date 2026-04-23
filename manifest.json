@@ -4,9 +4,7 @@
   "version": "0.1.0",
   "description": "Chrome extension for extracting video text and subtitles.",
   "permissions": ["activeTab", "tabs"],
-  "host_permissions": [
-    "https://www.youtube.com/*"
-  ],
+  "host_permissions": ["https://www.youtube.com/*"],
   "action": {
     "default_popup": "popup.html"
   },
