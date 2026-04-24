@@ -5,7 +5,10 @@ const captionStatusElement = document.getElementById("caption-status");
 const captionTextElement = document.getElementById("caption-text");
 const debugInfoElement = document.getElementById("debug-info");
 const toggleButtonElement = document.getElementById("toggle-button");
+const toastToggleElement = document.getElementById("toast-toggle");
+const requestCountElement = document.getElementById("request-count");
 
+let debugToastsEnabled = false;
 let isListening = false;
 
 function normalize(text) {
@@ -21,11 +24,17 @@ function renderState(state) {
     captionTextElement.textContent = state.captionText;
   }
 
+  if (typeof state.requestCount === "number") {
+    requestCountElement.textContent = String(state.requestCount);
+  }
+
   debugInfoElement.textContent = [
     `frameUrl=${state.url || "-"}`,
     `bodyId=${state.bodyId || "-"}`,
     `bodyClass=${state.bodyClass || "-"}`,
-    `source=${state.source || "-"}`
+    `source=${state.source || "-"}`,
+    `buffer=${state.sentenceBuffer || "-"}`,
+    `translatedText=${state.translatedText || "-"}`
   ].join("\n");
 }
 
@@ -44,19 +53,124 @@ async function getActiveTab() {
 
 async function startListening() {
   const tab = await getActiveTab();
+  const debugToastsEnabledState = debugToastsEnabled;
 
   const results = await chrome.scripting.executeScript({
     target: {
       tabId: tab.id,
       allFrames: true
     },
-    func: () => {
+    args: [debugToastsEnabledState],
+    func: (debugToastsEnabled) => {
       function normalize(text) {
         return (text || "").replace(/\s+/g, " ").trim();
       }
 
-      function mockTranslate(text) {
-        return `[PL mock] ${text}`;
+      function endsSentence(text) {
+        return /[.!?]$/.test(normalize(text));
+      }
+
+      function showDebugToast(message) {
+        if (!window.__subtitleTranslatorDebugToastsEnabled) {
+          return;
+        }
+
+        let container = document.querySelector("#subtitle-debug-toast-container");
+
+        if (!container) {
+          container = document.createElement("div");
+          container.id = "subtitle-debug-toast-container";
+          container.style.position = "fixed";
+          container.style.left = "16px";
+          container.style.bottom = "16px";
+          container.style.zIndex = "999999";
+          container.style.display = "flex";
+          container.style.flexDirection = "column";
+          container.style.gap = "8px";
+          container.style.pointerEvents = "none";
+          document.body.appendChild(container);
+        }
+
+        const toast = document.createElement("div");
+        toast.textContent = message;
+        toast.style.background = "rgba(0, 0, 0, 0.85)";
+        toast.style.color = "#fff";
+        toast.style.padding = "8px 10px";
+        toast.style.borderRadius = "8px";
+        toast.style.fontSize = "13px";
+        toast.style.maxWidth = "320px";
+        toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)";
+        toast.style.opacity = "1";
+        toast.style.transition = "opacity 300ms ease";
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.opacity = "0";
+          setTimeout(() => toast.remove(), 300);
+        }, 1800);
+      }
+
+      window.__subtitleTranslatorDebugToastsEnabled = debugToastsEnabled;
+
+      if (!window.__subtitleTranslatorCache) {
+        window.__subtitleTranslatorCache = new Map();
+      }
+
+      if (typeof window.__subtitleTranslatorRequestCount !== "number") {
+        window.__subtitleTranslatorRequestCount = 0;
+      }
+
+      async function translateText(text, targetLang = "pl") {
+        const normalizedText = normalize(text);
+
+        if (!normalizedText) {
+          return "";
+        }
+
+        const cacheKey = `${targetLang}:${normalizedText}`;
+
+        if (window.__subtitleTranslatorCache.has(cacheKey)) {
+          showDebugToast("📦 Odczytano z cache");
+          return window.__subtitleTranslatorCache.get(cacheKey);
+        }
+
+        window.__subtitleTranslatorRequestCount += 1;
+        showDebugToast("🌐 Wysłano request");
+
+        const url =
+          "https://translate.googleapis.com/translate_a/single" +
+          "?client=gtx" +
+          "&sl=auto" +
+          `&tl=${encodeURIComponent(targetLang)}` +
+          "&dt=t" +
+          `&q=${encodeURIComponent(normalizedText)}`;
+
+        try {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`Translation request failed: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          const translatedText = data?.[0]
+            ?.map((item) => item?.[0])
+            .filter(Boolean)
+            .join("");
+
+          const result = translatedText || normalizedText;
+
+          window.__subtitleTranslatorCache.set(cacheKey, result);
+          showDebugToast("💾 Dodano do cache");
+
+          return result;
+        } catch (error) {
+          console.error("[ext] Translation error:", error);
+          showDebugToast("⚠️ Błąd tłumaczenia");
+          return normalizedText;
+        }
       }
 
       function getPlayer() {
@@ -136,23 +250,27 @@ async function startListening() {
         }
       }
 
-      function showTranslatedSubtitle(originalText) {
+      async function showTranslatedSubtitle(textToTranslate) {
         const overlay = createTranslationOverlay();
 
         if (!overlay) {
-          return;
+          return "";
         }
 
-        const text = normalize(originalText);
+        const text = normalize(textToTranslate);
 
         if (!text) {
           overlay.textContent = "";
           overlay.style.display = "none";
-          return;
+          return "";
         }
 
-        overlay.textContent = mockTranslate(text);
+        const translatedText = await translateText(text);
+
+        overlay.textContent = translatedText;
         overlay.style.display = "block";
+
+        return translatedText;
       }
 
       function collectState(source) {
@@ -170,8 +288,45 @@ async function startListening() {
           foundPlayer: !!player,
           foundVideo: !!video,
           foundCaptionContainer: !!captionContainer,
-          captionText
+          captionText,
+          sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+          requestCount: window.__subtitleTranslatorRequestCount || 0
         };
+      }
+
+      function buildBufferedText(newText) {
+        const text = normalize(newText);
+
+        if (!text) {
+          return null;
+        }
+
+        if (!window.__subtitleTranslatorSentenceBuffer) {
+          window.__subtitleTranslatorSentenceBuffer = "";
+        }
+
+        const buffer = normalize(window.__subtitleTranslatorSentenceBuffer);
+
+        if (!buffer) {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        } else if (text.startsWith(buffer)) {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        } else if (buffer.endsWith("-")) {
+          window.__subtitleTranslatorSentenceBuffer = normalize(buffer.slice(0, -1) + text);
+        } else if (!endsSentence(buffer)) {
+          window.__subtitleTranslatorSentenceBuffer = normalize(`${buffer} ${text}`);
+        } else {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        }
+
+        const updatedBuffer = normalize(window.__subtitleTranslatorSentenceBuffer);
+
+        if (endsSentence(updatedBuffer)) {
+          window.__subtitleTranslatorSentenceBuffer = "";
+          return updatedBuffer;
+        }
+
+        return null;
       }
 
       const player = getPlayer();
@@ -190,16 +345,47 @@ async function startListening() {
         window.__subtitleTranslatorObserver = null;
       }
 
-      const sendState = (source) => {
+      let lastCaptionText = "";
+
+      const sendState = async (source) => {
         const state = collectState(source);
+        const currentText = normalize(state.captionText);
+
+        if (!currentText || currentText === lastCaptionText) {
+          return;
+        }
+
+        lastCaptionText = currentText;
         hideOriginalCaptions();
-        showTranslatedSubtitle(state.captionText);
-        chrome.runtime.sendMessage(state);
+
+        const completeText = buildBufferedText(currentText);
+
+        if (!completeText) {
+          chrome.runtime.sendMessage({
+            ...state,
+            captionText: currentText,
+            sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+            requestCount: window.__subtitleTranslatorRequestCount || 0,
+            translatedText: ""
+          });
+
+          return;
+        }
+
+        const translatedText = await showTranslatedSubtitle(completeText);
+
+        chrome.runtime.sendMessage({
+          ...state,
+          captionText: currentText,
+          sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+          requestCount: window.__subtitleTranslatorRequestCount || 0,
+          translatedText
+        });
       };
 
       if (captionContainer) {
         const observer = new MutationObserver(() => {
-          sendState("mutation");
+          sendState("mutation").catch(console.error);
         });
 
         observer.observe(captionContainer, {
@@ -211,7 +397,7 @@ async function startListening() {
         window.__subtitleTranslatorObserver = observer;
       }
 
-      sendState("listener-started");
+      sendState("listener-started").catch(console.error);
 
       return {
         started: true,
@@ -261,10 +447,16 @@ async function stopListening() {
         overlay.remove();
       }
 
+      const toastContainer = document.querySelector("#subtitle-debug-toast-container");
+
+      if (toastContainer) {
+        toastContainer.remove();
+      }
+
       const captionContainer = document.querySelector(".vjs-text-track-display");
 
       if (captionContainer) {
-          captionContainer.style.opacity = "";
+        captionContainer.style.opacity = "";
       }
 
       return true;
@@ -287,6 +479,46 @@ toggleButtonElement.addEventListener("click", async () => {
   } catch (error) {
     console.error(error);
     debugInfoElement.textContent = `Błąd: ${error?.message || error}`;
+  }
+});
+
+toastToggleElement.addEventListener("click", async () => {
+  debugToastsEnabled = !debugToastsEnabled;
+
+  if (debugToastsEnabled) {
+    toastToggleElement.classList.remove("off");
+    toastToggleElement.classList.add("on");
+    toastToggleElement.textContent = "ON";
+  } else {
+    toastToggleElement.classList.remove("on");
+    toastToggleElement.classList.add("off");
+    toastToggleElement.textContent = "OFF";
+  }
+
+  try {
+    const tab = await getActiveTab();
+
+    await chrome.scripting.executeScript({
+      target: {
+        tabId: tab.id,
+        allFrames: true
+      },
+      args: [debugToastsEnabled],
+      func: (enabled) => {
+        window.__subtitleTranslatorDebugToastsEnabled = enabled;
+
+        if (!enabled) {
+          const toastContainer = document.querySelector("#subtitle-debug-toast-container");
+
+          if (toastContainer) {
+            toastContainer.remove();
+          }
+        }
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    debugInfoElement.textContent = `Błąd zmiany toastów: ${error?.message || error}`;
   }
 });
 

@@ -6,7 +6,8 @@
   "permissions": ["activeTab", "tabs", "scripting"],
   "host_permissions": [
     "https://awsacademy.instructure.com/*",
-    "https://emergingtalent.contentcontroller.com/*"
+    "https://emergingtalent.contentcontroller.com/*",
+    "https://translate.googleapis.com/*"
   ],
   "action": {
     "default_popup": "popup.html"
