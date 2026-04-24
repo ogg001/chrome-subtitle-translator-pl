@@ -128,6 +128,14 @@ async function startListening() {
         return overlay;
       }
 
+      function hideOriginalCaptions() {
+        const captionContainer = getCaptionContainer();
+
+        if (captionContainer) {
+          captionContainer.style.opacity = "0";
+        }
+      }
+
       function showTranslatedSubtitle(originalText) {
         const overlay = createTranslationOverlay();
 
@@ -184,6 +192,7 @@ async function startListening() {
 
       const sendState = (source) => {
         const state = collectState(source);
+        hideOriginalCaptions();
         showTranslatedSubtitle(state.captionText);
         chrome.runtime.sendMessage(state);
       };
@@ -252,6 +261,12 @@ async function stopListening() {
         overlay.remove();
       }
 
+      const captionContainer = document.querySelector(".vjs-text-track-display");
+
+      if (captionContainer) {
+          captionContainer.style.opacity = "";
+      }
+
       return true;
     }
   });
@@ -259,7 +274,7 @@ async function stopListening() {
   isListening = false;
   listenerStatusElement.textContent = "wyłączony";
   toggleButtonElement.textContent = "Start listening";
-  debugInfoElement.textContent = "Listener zatrzymany. Overlay usunięty.";
+  debugInfoElement.textContent = "Listener zatrzymany. Overlay usunięty. Oryginalne napisy przywrócone.";
 }
 
 toggleButtonElement.addEventListener("click", async () => {
