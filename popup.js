@@ -25,7 +25,8 @@ function renderState(state) {
     `frameUrl=${state.url || "-"}`,
     `bodyId=${state.bodyId || "-"}`,
     `bodyClass=${state.bodyClass || "-"}`,
-    `source=${state.source || "-"}`
+    `source=${state.source || "-"}`,
+    `translatedText=${state.translatedText || "-"}`
   ].join("\n");
 }
 
@@ -55,7 +56,8 @@ async function startListening() {
         return (text || "").replace(/\s+/g, " ").trim();
       }
 
-      function mockTranslate(text) {
+      async function translateText(text) {
+        // Na razie mock. Później tutaj podepniemy LibreTranslate.
         return `[PL mock] ${text}`;
       }
 
@@ -136,11 +138,11 @@ async function startListening() {
         }
       }
 
-      function showTranslatedSubtitle(originalText) {
+      async function showTranslatedSubtitle(originalText) {
         const overlay = createTranslationOverlay();
 
         if (!overlay) {
-          return;
+          return "";
         }
 
         const text = normalize(originalText);
@@ -148,11 +150,15 @@ async function startListening() {
         if (!text) {
           overlay.textContent = "";
           overlay.style.display = "none";
-          return;
+          return "";
         }
 
-        overlay.textContent = mockTranslate(text);
+        const translatedText = await translateText(text);
+
+        overlay.textContent = translatedText;
         overlay.style.display = "block";
+
+        return translatedText;
       }
 
       function collectState(source) {
@@ -190,16 +196,32 @@ async function startListening() {
         window.__subtitleTranslatorObserver = null;
       }
 
-      const sendState = (source) => {
+      let lastCaptionText = "";
+
+      const sendState = async (source) => {
         const state = collectState(source);
+        const currentText = normalize(state.captionText);
+
+        if (!currentText || currentText === lastCaptionText) {
+          return;
+        }
+
+        lastCaptionText = currentText;
+
         hideOriginalCaptions();
-        showTranslatedSubtitle(state.captionText);
-        chrome.runtime.sendMessage(state);
+
+        const translatedText = await showTranslatedSubtitle(currentText);
+
+        chrome.runtime.sendMessage({
+          ...state,
+          captionText: currentText,
+          translatedText
+        });
       };
 
       if (captionContainer) {
         const observer = new MutationObserver(() => {
-          sendState("mutation");
+          sendState("mutation").catch(console.error);
         });
 
         observer.observe(captionContainer, {
@@ -211,7 +233,7 @@ async function startListening() {
         window.__subtitleTranslatorObserver = observer;
       }
 
-      sendState("listener-started");
+      sendState("listener-started").catch(console.error);
 
       return {
         started: true,
@@ -264,7 +286,7 @@ async function stopListening() {
       const captionContainer = document.querySelector(".vjs-text-track-display");
 
       if (captionContainer) {
-          captionContainer.style.opacity = "";
+        captionContainer.style.opacity = "";
       }
 
       return true;
