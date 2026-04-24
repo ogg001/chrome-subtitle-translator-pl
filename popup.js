@@ -56,9 +56,96 @@ async function startListening() {
         return (text || "").replace(/\s+/g, " ").trim();
       }
 
-      async function translateText(text) {
-        // Na razie mock. Później tutaj podepniemy LibreTranslate.
-        return `[PL mock] ${text}`;
+      function showDebugToast(message) {
+        let container = document.querySelector("#subtitle-debug-toast-container");
+
+        if (!container) {
+          container = document.createElement("div");
+          container.id = "subtitle-debug-toast-container";
+          container.style.position = "fixed";
+          container.style.left = "16px";
+          container.style.bottom = "16px";
+          container.style.zIndex = "999999";
+          container.style.display = "flex";
+          container.style.flexDirection = "column";
+          container.style.gap = "8px";
+          container.style.pointerEvents = "none";
+          document.body.appendChild(container);
+        }
+
+        const toast = document.createElement("div");
+        toast.textContent = message;
+        toast.style.background = "rgba(0, 0, 0, 0.85)";
+        toast.style.color = "#fff";
+        toast.style.padding = "8px 10px";
+        toast.style.borderRadius = "8px";
+        toast.style.fontSize = "13px";
+        toast.style.maxWidth = "320px";
+        toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)";
+        toast.style.opacity = "1";
+        toast.style.transition = "opacity 300ms ease";
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.opacity = "0";
+          setTimeout(() => toast.remove(), 300);
+        }, 1800);
+      }
+
+      if (!window.__subtitleTranslatorCache) {
+        window.__subtitleTranslatorCache = new Map();
+      }
+
+      async function translateText(text, targetLang = "pl") {
+        const normalizedText = normalize(text);
+
+        if (!normalizedText) {
+          return "";
+        }
+
+        const cacheKey = `${targetLang}:${normalizedText}`;
+
+        if (window.__subtitleTranslatorCache.has(cacheKey)) {
+          showDebugToast("📦 Odczytano z cache");
+          return window.__subtitleTranslatorCache.get(cacheKey);
+        }
+
+        showDebugToast("🌐 Wysłano request");
+
+        const url =
+          "https://translate.googleapis.com/translate_a/single" +
+          "?client=gtx" +
+          "&sl=auto" +
+          `&tl=${encodeURIComponent(targetLang)}` +
+          "&dt=t" +
+          `&q=${encodeURIComponent(normalizedText)}`;
+
+        try {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`Translation request failed: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          const translatedText = data?.[0]
+            ?.map((item) => item?.[0])
+            .filter(Boolean)
+            .join("");
+
+          const result = translatedText || normalizedText;
+
+          window.__subtitleTranslatorCache.set(cacheKey, result);
+          showDebugToast("💾 Dodano do cache");
+
+          return result;
+        } catch (error) {
+          console.error("[ext] Translation error:", error);
+          showDebugToast("⚠️ Błąd tłumaczenia");
+          return normalizedText;
+        }
       }
 
       function getPlayer() {
@@ -281,6 +368,12 @@ async function stopListening() {
 
       if (overlay) {
         overlay.remove();
+      }
+
+      const toastContainer = document.querySelector("#subtitle-debug-toast-container");
+
+      if (toastContainer) {
+        toastContainer.remove();
       }
 
       const captionContainer = document.querySelector(".vjs-text-track-display");
