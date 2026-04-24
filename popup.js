@@ -55,27 +55,103 @@ async function startListening() {
         return (text || "").replace(/\s+/g, " ").trim();
       }
 
-      function collectState(source) {
-        const player =
-          document.querySelector("#rscpAu-Media") ||
-          document.querySelector(".video-js");
+      function mockTranslate(text) {
+        return `[PL mock] ${text}`;
+      }
 
-        const video =
+      function getPlayer() {
+        return (
+          document.querySelector("#rscpAu-Media") ||
+          document.querySelector(".video-js")
+        );
+      }
+
+      function getVideo() {
+        return (
           document.querySelector("#rscpAu-Media_html5_api") ||
           document.querySelector("video.vjs-tech") ||
-          document.querySelector("video");
+          document.querySelector("video")
+        );
+      }
 
-        const captionContainer =
-          document.querySelector(".vjs-text-track-display");
+      function getCaptionContainer() {
+        return document.querySelector(".vjs-text-track-display");
+      }
 
-        const captionCue =
-          document.querySelector(".vjs-text-track-cue");
+      function getCaptionText() {
+        const captionContainer = getCaptionContainer();
+        const captionCue = document.querySelector(".vjs-text-track-cue");
 
-        const captionText = normalize(
+        return normalize(
           captionCue?.innerText ||
           captionContainer?.innerText ||
           ""
         );
+      }
+
+      function createTranslationOverlay() {
+        let overlay = document.querySelector("#subtitle-translator-overlay");
+
+        if (overlay) {
+          return overlay;
+        }
+
+        const player = getPlayer();
+
+        if (!player) {
+          return null;
+        }
+
+        player.style.position = "relative";
+
+        overlay = document.createElement("div");
+        overlay.id = "subtitle-translator-overlay";
+        overlay.style.position = "absolute";
+        overlay.style.left = "5%";
+        overlay.style.right = "5%";
+        overlay.style.bottom = "78px";
+        overlay.style.zIndex = "99999";
+        overlay.style.textAlign = "center";
+        overlay.style.color = "#ffffff";
+        overlay.style.fontSize = "22px";
+        overlay.style.fontWeight = "600";
+        overlay.style.lineHeight = "1.35";
+        overlay.style.textShadow = "2px 2px 4px #000000";
+        overlay.style.background = "rgba(0, 0, 0, 0.72)";
+        overlay.style.padding = "8px 12px";
+        overlay.style.borderRadius = "8px";
+        overlay.style.pointerEvents = "none";
+        overlay.style.display = "none";
+
+        player.appendChild(overlay);
+
+        return overlay;
+      }
+
+      function showTranslatedSubtitle(originalText) {
+        const overlay = createTranslationOverlay();
+
+        if (!overlay) {
+          return;
+        }
+
+        const text = normalize(originalText);
+
+        if (!text) {
+          overlay.textContent = "";
+          overlay.style.display = "none";
+          return;
+        }
+
+        overlay.textContent = mockTranslate(text);
+        overlay.style.display = "block";
+      }
+
+      function collectState(source) {
+        const player = getPlayer();
+        const video = getVideo();
+        const captionContainer = getCaptionContainer();
+        const captionText = getCaptionText();
 
         return {
           type: "SUBTITLE_STATE",
@@ -90,17 +166,9 @@ async function startListening() {
         };
       }
 
-      const captionContainer =
-        document.querySelector(".vjs-text-track-display");
-
-      const player =
-        document.querySelector("#rscpAu-Media") ||
-        document.querySelector(".video-js");
-
-      const video =
-        document.querySelector("#rscpAu-Media_html5_api") ||
-        document.querySelector("video.vjs-tech") ||
-        document.querySelector("video");
+      const player = getPlayer();
+      const video = getVideo();
+      const captionContainer = getCaptionContainer();
 
       if (!player && !video && !captionContainer) {
         return {
@@ -115,7 +183,9 @@ async function startListening() {
       }
 
       const sendState = (source) => {
-        chrome.runtime.sendMessage(collectState(source));
+        const state = collectState(source);
+        showTranslatedSubtitle(state.captionText);
+        chrome.runtime.sendMessage(state);
       };
 
       if (captionContainer) {
@@ -176,6 +246,12 @@ async function stopListening() {
         window.__subtitleTranslatorObserver = null;
       }
 
+      const overlay = document.querySelector("#subtitle-translator-overlay");
+
+      if (overlay) {
+        overlay.remove();
+      }
+
       return true;
     }
   });
@@ -183,7 +259,7 @@ async function stopListening() {
   isListening = false;
   listenerStatusElement.textContent = "wyłączony";
   toggleButtonElement.textContent = "Start listening";
-  debugInfoElement.textContent = "Listener zatrzymany.";
+  debugInfoElement.textContent = "Listener zatrzymany. Overlay usunięty.";
 }
 
 toggleButtonElement.addEventListener("click", async () => {
