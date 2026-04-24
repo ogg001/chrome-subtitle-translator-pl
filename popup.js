@@ -5,7 +5,10 @@ const captionStatusElement = document.getElementById("caption-status");
 const captionTextElement = document.getElementById("caption-text");
 const debugInfoElement = document.getElementById("debug-info");
 const toggleButtonElement = document.getElementById("toggle-button");
+const toastToggleElement = document.getElementById("toast-toggle");
+const requestCountElement = document.getElementById("request-count");
 
+let debugToastsEnabled = false;
 let isListening = false;
 
 function normalize(text) {
@@ -21,11 +24,16 @@ function renderState(state) {
     captionTextElement.textContent = state.captionText;
   }
 
+  if (typeof state.requestCount === "number") {
+    requestCountElement.textContent = String(state.requestCount);
+  }
+
   debugInfoElement.textContent = [
     `frameUrl=${state.url || "-"}`,
     `bodyId=${state.bodyId || "-"}`,
     `bodyClass=${state.bodyClass || "-"}`,
     `source=${state.source || "-"}`,
+    `buffer=${state.sentenceBuffer || "-"}`,
     `translatedText=${state.translatedText || "-"}`
   ].join("\n");
 }
@@ -45,18 +53,28 @@ async function getActiveTab() {
 
 async function startListening() {
   const tab = await getActiveTab();
+  const debugToastsEnabledState = debugToastsEnabled;
 
   const results = await chrome.scripting.executeScript({
     target: {
       tabId: tab.id,
       allFrames: true
     },
-    func: () => {
+    args: [debugToastsEnabledState],
+    func: (debugToastsEnabled) => {
       function normalize(text) {
         return (text || "").replace(/\s+/g, " ").trim();
       }
 
+      function endsSentence(text) {
+        return /[.!?]$/.test(normalize(text));
+      }
+
       function showDebugToast(message) {
+        if (!window.__subtitleTranslatorDebugToastsEnabled) {
+          return;
+        }
+
         let container = document.querySelector("#subtitle-debug-toast-container");
 
         if (!container) {
@@ -93,8 +111,14 @@ async function startListening() {
         }, 1800);
       }
 
+      window.__subtitleTranslatorDebugToastsEnabled = debugToastsEnabled;
+
       if (!window.__subtitleTranslatorCache) {
         window.__subtitleTranslatorCache = new Map();
+      }
+
+      if (typeof window.__subtitleTranslatorRequestCount !== "number") {
+        window.__subtitleTranslatorRequestCount = 0;
       }
 
       async function translateText(text, targetLang = "pl") {
@@ -111,6 +135,7 @@ async function startListening() {
           return window.__subtitleTranslatorCache.get(cacheKey);
         }
 
+        window.__subtitleTranslatorRequestCount += 1;
         showDebugToast("🌐 Wysłano request");
 
         const url =
@@ -225,14 +250,14 @@ async function startListening() {
         }
       }
 
-      async function showTranslatedSubtitle(originalText) {
+      async function showTranslatedSubtitle(textToTranslate) {
         const overlay = createTranslationOverlay();
 
         if (!overlay) {
           return "";
         }
 
-        const text = normalize(originalText);
+        const text = normalize(textToTranslate);
 
         if (!text) {
           overlay.textContent = "";
@@ -263,8 +288,45 @@ async function startListening() {
           foundPlayer: !!player,
           foundVideo: !!video,
           foundCaptionContainer: !!captionContainer,
-          captionText
+          captionText,
+          sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+          requestCount: window.__subtitleTranslatorRequestCount || 0
         };
+      }
+
+      function buildBufferedText(newText) {
+        const text = normalize(newText);
+
+        if (!text) {
+          return null;
+        }
+
+        if (!window.__subtitleTranslatorSentenceBuffer) {
+          window.__subtitleTranslatorSentenceBuffer = "";
+        }
+
+        const buffer = normalize(window.__subtitleTranslatorSentenceBuffer);
+
+        if (!buffer) {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        } else if (text.startsWith(buffer)) {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        } else if (buffer.endsWith("-")) {
+          window.__subtitleTranslatorSentenceBuffer = normalize(buffer.slice(0, -1) + text);
+        } else if (!endsSentence(buffer)) {
+          window.__subtitleTranslatorSentenceBuffer = normalize(`${buffer} ${text}`);
+        } else {
+          window.__subtitleTranslatorSentenceBuffer = text;
+        }
+
+        const updatedBuffer = normalize(window.__subtitleTranslatorSentenceBuffer);
+
+        if (endsSentence(updatedBuffer)) {
+          window.__subtitleTranslatorSentenceBuffer = "";
+          return updatedBuffer;
+        }
+
+        return null;
       }
 
       const player = getPlayer();
@@ -294,14 +356,29 @@ async function startListening() {
         }
 
         lastCaptionText = currentText;
-
         hideOriginalCaptions();
 
-        const translatedText = await showTranslatedSubtitle(currentText);
+        const completeText = buildBufferedText(currentText);
+
+        if (!completeText) {
+          chrome.runtime.sendMessage({
+            ...state,
+            captionText: currentText,
+            sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+            requestCount: window.__subtitleTranslatorRequestCount || 0,
+            translatedText: ""
+          });
+
+          return;
+        }
+
+        const translatedText = await showTranslatedSubtitle(completeText);
 
         chrome.runtime.sendMessage({
           ...state,
           captionText: currentText,
+          sentenceBuffer: window.__subtitleTranslatorSentenceBuffer || "",
+          requestCount: window.__subtitleTranslatorRequestCount || 0,
           translatedText
         });
       };
@@ -402,6 +479,46 @@ toggleButtonElement.addEventListener("click", async () => {
   } catch (error) {
     console.error(error);
     debugInfoElement.textContent = `Błąd: ${error?.message || error}`;
+  }
+});
+
+toastToggleElement.addEventListener("click", async () => {
+  debugToastsEnabled = !debugToastsEnabled;
+
+  if (debugToastsEnabled) {
+    toastToggleElement.classList.remove("off");
+    toastToggleElement.classList.add("on");
+    toastToggleElement.textContent = "ON";
+  } else {
+    toastToggleElement.classList.remove("on");
+    toastToggleElement.classList.add("off");
+    toastToggleElement.textContent = "OFF";
+  }
+
+  try {
+    const tab = await getActiveTab();
+
+    await chrome.scripting.executeScript({
+      target: {
+        tabId: tab.id,
+        allFrames: true
+      },
+      args: [debugToastsEnabled],
+      func: (enabled) => {
+        window.__subtitleTranslatorDebugToastsEnabled = enabled;
+
+        if (!enabled) {
+          const toastContainer = document.querySelector("#subtitle-debug-toast-container");
+
+          if (toastContainer) {
+            toastContainer.remove();
+          }
+        }
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    debugInfoElement.textContent = `Błąd zmiany toastów: ${error?.message || error}`;
   }
 });
 

@@ -53,3 +53,31 @@ p {
   cursor: pointer;
   font-size: 14px;
 }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.toggle-button {
+  border: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.toggle-button.off {
+  background: #444;
+  color: #ccc;
+}
+
+.toggle-button.on {
+  background: #2ecc71;
+  color: #fff;
+}
